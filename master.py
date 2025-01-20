@@ -1,5 +1,6 @@
 import socket
 import json
+from textwrap import indent
 
 SLAVES = {
     "slavepi1": "192.168.0.15", 
@@ -28,7 +29,7 @@ def send_command(ip, command, params=None):
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-def main():
+def query_slaves():
     for name, ip in SLAVES.items():
         print(f"\nQuerying details from {name} ({ip})...")
         results = {"slave": name, "ip": ip, "details": {}}
@@ -36,12 +37,18 @@ def main():
             response = send_command(ip, command)
             results["details"][command] = response
 
-        # Print results in a structured format
+        # Print results in a structured and readable format
         print("=" * 40)
         print(f"Slave: {results['slave']} ({results['ip']})")
         for cmd, result in results["details"].items():
-            print(f"{cmd}: {result}")
+            status = result.get('status', 'unknown')
+            if status == 'success':
+                data = result.get('data', 'No data available')
+                print(f"{cmd}:\n{indent(data, '  ')}")
+            else:
+                message = result.get('message', 'Unknown error')
+                print(f"{cmd}: ERROR - {message}")
         print("=" * 40)
 
 if __name__ == "__main__":
-    main()
+    query_slaves()
