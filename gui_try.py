@@ -3,9 +3,12 @@ import socket
 import json
 import tkinter as tk
 from tkinter import ttk
+import time
 import datetime
 import threading
 import subprocess as sp
+
+import psutil
 
 # Configuration
 SLAVES = {
@@ -45,27 +48,44 @@ def fetch_local_data(command):
     try:
         if command == "GET_CPU_TEMP":
             if platform.system() == "Linux":
-                try:
-                    temp = float(
-                        sp.getoutput("vcgencmd measure_temp").split("=")[1].split("'")[0]
-                    )
-                    return {"status": "success", "data": f"{temp:.1f}°C"}
-                except Exception as e:
-                    return {"status": "error", "message": f"Temperature command failed: {e}"}
+                # Read from /sys/class/thermal/thermal_zone0/temp
+                with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                    temp = int(f.read().strip()) / 1000.0
+                return {"status": "success", "data": f"{temp:.2f}"}
+            elif platform.system() == "Windows":
+                # Use psutil for temperature if available
+                sensors = psutil.sensors_temperatures()
+                if "coretemp" in sensors:
+                    temp = sensors["coretemp"][0].current
+                    return {"status": "success", "data": f"{temp:.2f}"}
+                return {"status": "error", "message": "Temperature not available on Windows"}
             else:
-                # Simulate CPU temperature for non-Linux platforms
-                return {"status": "success", "data": "N/A"}
+                return {"status": "error", "message": "Unsupported platform"}
         elif command == "GET_UPTIME":
-            uptime_seconds = int(sp.getoutput("awk '{print $1}' /proc/uptime").split(".")[0])
-            uptime_str = str(datetime.timedelta(seconds=uptime_seconds))
-            return {"status": "success", "data": uptime_str.split(".")[0]}
+            try:
+                # Calculate system uptime
+                uptime_seconds = time.time() - psutil.boot_time()
+                uptime_str = str(datetime.timedelta(seconds=int(uptime_seconds)))
+                return {"status": "success", "data": uptime_str.split(".")[0]}
+            except Exception as e:
+                return {"status": "error", "message": f"Uptime retrieval failed: {e}"}
         elif command == "GET_DISK_USAGE":
-            usage = sp.getoutput("df -h / | tail -1").split()
-            used_percentage = usage[4].strip("%")
-            return {"status": "success", "data": f"{used_percentage}%"}
+            try:
+                disk_usage = psutil.disk_usage("/")
+                used_percentage = (disk_usage.used / disk_usage.total) * 100
+                return {"status": "success", "data": f"{used_percentage:.1f}%"}
+            except Exception as e:
+                return {"status": "error", "message": f"Disk usage command failed: {e}"}
         elif command == "LIST_USB":
-            usb_devices = sp.getoutput("lsusb | wc -l")
-            return {"status": "success", "data": f"{usb_devices} devices"}
+            try:
+                if platform.system() == "Linux":
+                    usb_devices = sp.getoutput("lsusb | wc -l")
+                    return {"status": "success", "data": f"{usb_devices} devices"}
+                else:
+                    # Simulate USB device count for non-Linux platforms
+                    return {"status": "success", "data": "N/A"}
+            except Exception as e:
+                return {"status": "error", "message": f"USB list retrieval failed: {e}"}
         elif command == "REQUEST_ADC":
             return {"status": "error", "message": "ADC not available on master PC"}
     except Exception as e:
@@ -94,22 +114,27 @@ def get_raspberry_pi_model(ip):
 
 
 class SlaveFrame(tk.Frame):
-    """Frame representing a single slave's status and data."""
     def __init__(self, master, slave_id, ip, model="Unknown"):
         super().__init__(master, bg="#282c34")
         self.slave_id = slave_id
         self.ip = ip
         self.model = model
 
-        # Title with model info
+        # Adjust title formatting for masterpc
+        if slave_id == "masterpc":
+            title_text = f"Master PC ({ip})"
+        else:
+            title_text = f"Slave PC {slave_id} ({ip}) - {model}"
+
         self.title_label = tk.Label(
             self,
-            text=f"Slave PC {slave_id} ({ip}) - {model}",
+            text=title_text,
             fg="#abb2bf",
             bg="#282c34",
             font=("Helvetica", 12, "bold"),
         )
         self.title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
+
 
         # CPU Temp
         self.cpu_label = tk.Label(self, text="CPU Temp:", fg="#abb2bf", bg="#282c34")
