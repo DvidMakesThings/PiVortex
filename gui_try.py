@@ -296,8 +296,26 @@ class RackMonitorApp(tk.Tk):
         is_online = False
 
         if ip == "localhost":
-            # Use local fetching for the master PC
+            # Fetch Raspberry Pi model for master PC
+            model_response = fetch_local_data("RUN_SCRIPT", {"script": "cat /proc/device-tree/model"})
+            if model_response.get("status") == "success":
+                model_raw = model_response.get("data", "").strip()
+                if "Raspberry Pi 5" in model_raw:
+                    data["model"] = "Raspberry Pi 5"
+                elif "Raspberry Pi 4" in model_raw:
+                    data["model"] = "Raspberry Pi 4"
+                else:
+                    data["model"] = model_raw
+            else:
+                data["model"] = "Unknown"
+                print(f"[WARNING] Failed to detect model for localhost: {model_response.get('message')}")
+
+            # Fetch local data for the master PC
             for command in DETAIL_COMMANDS:
+                if command == "REQUEST_ADC" and "5" not in data["model"]:
+                    data["adc_value"] = "Not Supported"
+                    continue
+
                 response = fetch_local_data(command)
                 if response.get("status") == "success":
                     is_online = True
@@ -313,14 +331,25 @@ class RackMonitorApp(tk.Tk):
                     elif command == "REQUEST_ADC":
                         data["adc_value"] = raw_data
                 else:
-                    print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+                    print(f"[WARNING] Command {command} failed for localhost: {response.get('message')}")
         else:
-            # Detect Raspberry Pi model
-            model = get_raspberry_pi_model(ip)
-            supports_adc = "5" in model  # Only Raspberry Pi 5 supports ADC
+            # Fetch Raspberry Pi model for remote slaves
+            model_response = send_command(ip, "RUN_SCRIPT", {"script": "cat /proc/device-tree/model"})
+            if model_response.get("status") == "success":
+                model_raw = model_response.get("data", "").strip()
+                if "Raspberry Pi 5" in model_raw:
+                    data["model"] = "Raspberry Pi 5"
+                elif "Raspberry Pi 4" in model_raw:
+                    data["model"] = "Raspberry Pi 4"
+                else:
+                    data["model"] = model_raw
+            else:
+                data["model"] = "Unknown"
+                print(f"[WARNING] Failed to detect model for {ip}: {model_response.get('message')}")
 
+            # Fetch data from the slave
             for command in DETAIL_COMMANDS:
-                if command == "REQUEST_ADC" and not supports_adc:
+                if command == "REQUEST_ADC" and "5" not in data["model"]:
                     data["adc_value"] = "Not Supported"
                     continue
 
@@ -350,8 +379,11 @@ class RackMonitorApp(tk.Tk):
                             data["adc_value"] = "N/A"
                 else:
                     print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
-            data["status"] = "Online" if is_online else "Offline"
-            return data
+
+        data["status"] = "Online" if is_online else "Offline"
+        return data
+
+
 
     def update_real_data(self):
         """Fetch and update data for all slaves."""
