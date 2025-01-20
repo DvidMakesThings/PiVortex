@@ -1,15 +1,18 @@
+import platform
 import socket
 import json
-import threading
 import tkinter as tk
 from tkinter import ttk
 import datetime
+import threading
+import subprocess as sp
 
+# Configuration
 SLAVES = {
+    "masterpc": "localhost",  # Add master PC as localhost
     "slavepi1": "192.168.0.15",
     "slavepi2": "192.168.0.20",
     "slavepi3": "192.168.0.25",
-    "slavepi4": "192.168.0.30"
 }
 PORT = 65432
 TIMEOUT = 5
@@ -17,221 +20,322 @@ DETAIL_COMMANDS = [
     "GET_CPU_TEMP",
     "GET_UPTIME",
     "GET_DISK_USAGE",
-    "LIST_USB"
+    "LIST_USB",
+    "REQUEST_ADC",
 ]
 
 
 def send_command(ip, command, params=None):
+    """Send a command to a slave or fetch local data for the master."""
     try:
+        if ip == "localhost":
+            return fetch_local_data(command)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(TIMEOUT)
             s.connect((ip, PORT))
             s.sendall(json.dumps({"command": command, "params": params}).encode())
-            data = s.recv(1024)
+            data = s.recv(4096)
             return json.loads(data.decode())
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
+def fetch_local_data(command):
+    """Fetch data locally for the master PC."""
+    try:
+        if command == "GET_CPU_TEMP":
+            if platform.system() == "Linux":
+                try:
+                    temp = float(
+                        sp.getoutput("vcgencmd measure_temp").split("=")[1].split("'")[0]
+                    )
+                    return {"status": "success", "data": f"{temp:.1f}°C"}
+                except Exception as e:
+                    return {"status": "error", "message": f"Temperature command failed: {e}"}
+            else:
+                # Simulate CPU temperature for non-Linux platforms
+                return {"status": "success", "data": "N/A"}
+        elif command == "GET_UPTIME":
+            uptime_seconds = int(sp.getoutput("awk '{print $1}' /proc/uptime").split(".")[0])
+            uptime_str = str(datetime.timedelta(seconds=uptime_seconds))
+            return {"status": "success", "data": uptime_str.split(".")[0]}
+        elif command == "GET_DISK_USAGE":
+            usage = sp.getoutput("df -h / | tail -1").split()
+            used_percentage = usage[4].strip("%")
+            return {"status": "success", "data": f"{used_percentage}%"}
+        elif command == "LIST_USB":
+            usb_devices = sp.getoutput("lsusb | wc -l")
+            return {"status": "success", "data": f"{usb_devices} devices"}
+        elif command == "REQUEST_ADC":
+            return {"status": "error", "message": "ADC not available on master PC"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
-class PCFrame(tk.Frame):
-    def __init__(self, master, pc_name, ip=None):
+
+def get_raspberry_pi_model(ip):
+    """Fetch the Raspberry Pi model using /proc/device-tree/model."""
+    if ip == "localhost":
+        return "Master PC"
+    try:
+        response = send_command(ip, "RUN_SCRIPT", params={"script": "cat /proc/device-tree/model"})
+        if response.get("status") == "success":
+            raw_model = response.get("data", "Unknown").strip()
+            if "Raspberry Pi 5" in raw_model:
+                return "Raspberry Pi 5"
+            elif "Raspberry Pi 4" in raw_model:
+                return "Raspberry Pi 4"
+            else:
+                return raw_model
+        else:
+            print(f"[WARNING] Failed to detect model for {ip}: {response.get('message')}")
+    except Exception as e:
+        print(f"[ERROR] Exception while detecting model for {ip}: {e}")
+    return "Unknown"
+
+
+class SlaveFrame(tk.Frame):
+    """Frame representing a single slave's status and data."""
+    def __init__(self, master, slave_id, ip, model="Unknown"):
         super().__init__(master, bg="#282c34")
-        self.pc_name = pc_name
+        self.slave_id = slave_id
         self.ip = ip
+        self.model = model
 
-        self.title_label = tk.Label(self, text=pc_name, fg="#abb2bf", bg="#282c34", font=("Helvetica", 12, "bold"))
+        # Title with model info
+        self.title_label = tk.Label(
+            self,
+            text=f"Slave PC {slave_id} ({ip}) - {model}",
+            fg="#abb2bf",
+            bg="#282c34",
+            font=("Helvetica", 12, "bold"),
+        )
         self.title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
 
-        self.cpu_label = tk.Label(self, text="CPU Usage:", fg="#abb2bf", bg="#282c34")
+        # CPU Temp
+        self.cpu_label = tk.Label(self, text="CPU Temp:", fg="#abb2bf", bg="#282c34")
         self.cpu_label.grid(row=1, column=0, sticky="w")
+
         self.cpu_progress = ttk.Progressbar(self, length=150, mode="determinate")
         self.cpu_progress.grid(row=1, column=1, padx=(5, 0), sticky="w")
 
-        self.memory_label = tk.Label(self, text="Memory:", fg="#abb2bf", bg="#282c34")
-        self.memory_label.grid(row=2, column=0, sticky="w")
-        self.memory_progress = ttk.Progressbar(self, length=150, mode="determinate")
-        self.memory_progress.grid(row=2, column=1, padx=(5, 0), sticky="w")
+        self.cpu_temp_label = tk.Label(
+            self,
+            text="--°C",
+            fg="#abb2bf",
+            bg="#282c34",
+            font=("Helvetica", 10, "bold"),
+        )
+        self.cpu_temp_label.grid(row=1, column=2, padx=(5, 0), sticky="w")
 
+        # Disk Usage
         self.disk_label = tk.Label(self, text="Disk Usage:", fg="#abb2bf", bg="#282c34")
-        self.disk_label.grid(row=3, column=0, sticky="w")
+        self.disk_label.grid(row=2, column=0, sticky="w")
         self.disk_progress = ttk.Progressbar(self, length=150, mode="determinate")
-        self.disk_progress.grid(row=3, column=1, padx=(5, 0), sticky="w")
+        self.disk_progress.grid(row=2, column=1, padx=(5, 0), sticky="w")
 
-        self.temp_label = tk.Label(self, text="Temperature:", fg="#abb2bf", bg="#282c34")
-        self.temp_label.grid(row=4, column=0, sticky="w")
+        self.disk_usage_label = tk.Label(
+            self,
+            text="--%",
+            fg="#abb2bf",
+            bg="#282c34",
+            font=("Helvetica", 10, "bold"),
+        )
+        self.disk_usage_label.grid(row=2, column=2, padx=(5, 0), sticky="w")
 
-        self.uptime_label = tk.Label(self, text=f"Uptime: --", fg="#abb2bf", bg="#282c34")
+        # USB Devices
+        self.usb_label = tk.Label(self, text="USB Devices: --", fg="#abb2bf", bg="#282c34")
+        self.usb_label.grid(row=3, column=0, columnspan=3, sticky="w")
+
+        # ADC Value
+        self.adc_label = tk.Label(self, text="ADC Value: --", fg="#abb2bf", bg="#282c34")
+        self.adc_label.grid(row=4, column=0, columnspan=3, sticky="w")
+
+        # Uptime
+        self.uptime_label = tk.Label(self, text="Uptime: --", fg="#abb2bf", bg="#282c34")
         self.uptime_label.grid(row=5, column=0, sticky="w")
 
-
-        self.usb_label = tk.Label(self, text="USB Devices:", fg="#abb2bf", bg="#282c34", wraplength=150, justify="left") # USB devices label, with text wrapping
-        self.usb_label.grid(row=6, column=0, columnspan=2, sticky="w")  # Spans two columns, positioned below
-
-
-        self.online_label = tk.Label(self, text="Offline", fg="red", bg="#282c34")
-        self.online_label.place(relx=0.9, y=10, anchor='ne')
-
-        self.update_data({"cpu_usage": 0, "memory": 0, "disk_usage": 0, "temperature": "--", "uptime": "--"})
-        if ip:
-            self.query_details()
-
+        # Status
+        self.status_label = tk.Label(
+            self, text="Status: Unknown", fg="#abb2bf", bg="#282c34"
+        )
+        self.status_label.grid(row=6, column=0, sticky="w")
 
     def update_data(self, data):
-        self.cpu_progress["value"] = data.get("cpu_usage", 0)
-        self.memory_progress["value"] = data.get("memory", 0)
-        self.disk_progress["value"] = data.get("disk_usage", 0)
-        self.temp_label.config(text=f"Temperature: {data.get('temperature', '--')}°C")
+        """Update the frame's data and progress bars."""
+        # Update CPU Temp
+        cpu_temp = data.get("cpu_temp", 0)
+        self.cpu_progress["value"] = self._safe_value(cpu_temp)
+        self.cpu_temp_label.config(text=f"{cpu_temp:.1f}°C")
+
+        # Update Disk Usage
+        disk_usage = data.get("disk_usage", 0)
+        self.disk_progress["value"] = self._safe_value(disk_usage)
+        self.disk_usage_label.config(text=f"{disk_usage:.1f}%")
+
+        # Update USB Devices
+        self.usb_label.config(text=f"USB Devices: {data.get('usb_devices', '--')}")
+
+        # Update ADC Value
+        self.adc_label.config(text=f"ADC Value: {data.get('adc_value', '--')}")
+
+        # Update Uptime
         self.uptime_label.config(text=f"Uptime: {data.get('uptime', '--')}")
 
-        usb_devices = data.get("usb_devices", "No USB data")
-        self.usb_label.config(text=f"USB Devices:\n{usb_devices}")
+        # Update Status
+        self.status_label.config(text=f"Status: {data.get('status', 'Online')}")
 
+    @staticmethod
+    def _safe_value(value):
+        """Ensure a valid value for progress bars (0-100)."""
+        try:
+            value = float(value)
+            return max(0, min(100, value))
+        except (ValueError, TypeError):
+            return 0
 
-    def query_details(self):
-        if self.ip:
-            threading.Thread(target=self.update_details, args=(self.ip,)).start()
-
-    def update_details(self, ip):
-            results = {}
-            for cmd in DETAIL_COMMANDS:
-                response = send_command(ip, cmd)
-                if response.get("status") == "success":
-                    results[cmd] = response.get("data")
-                else:
-                    results[cmd] = f"Error: {response.get('message', 'Unknown')}"
-
-            try:
-                cpu_temp = int(results.get("GET_CPU_TEMP", 0).replace("°C", ""))
-                uptime = results.get("GET_UPTIME")
-                disk_usage_lines = results.get("GET_DISK_USAGE", "").splitlines()
-                if disk_usage_lines:
-                    disk_usage = int(disk_usage_lines[1].split()[4].replace("%", ""))
-                else:
-                    disk_usage = 0
-                usb_list = results.get("LIST_USB")
-
-                self.update_data({
-                    "cpu_usage": cpu_temp,
-                    "memory": 0,
-                    "disk_usage": disk_usage,
-                    "temperature": results.get("GET_CPU_TEMP"),
-                    "uptime": uptime,
-                    "usb_devices": usb_list
-                })
-                self.online_label.config(text="Online", fg="green")
-
-
-            except (ValueError, IndexError) as e:
-                print(f"Error parsing data from {self.pc_name}: {e}")
-                # Display more specific error messages on the labels
-                self.cpu_progress["value"] = 0  # Reset to 0 on error
-                self.memory_progress["value"] = 0  # Reset to 0 on error
-                self.disk_progress["value"] = 0  # Reset to 0 on error
-
-                self.temp_label.config(text="Temperature: Error")
-                self.uptime_label.config(text="Uptime: Error")
-                self.usb_label.config(text=f"USB Devices: Error")
 
 class RackMonitorApp(tk.Tk):
+    """Main application for monitoring the slaves."""
     def __init__(self):
         super().__init__()
-
         self.title("Rack Monitoring System")
         self.configure(bg="#282c34")
 
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("TButton", background="#3e4452", foreground="#abb2bf", borderwidth=0, padding=5)
-        style.configure("TFrame", background="#282c34")
-        style.configure("TEntry", fieldbackground="#3e4452", foreground="#abb2bf")
-        style.configure("TProgressbar", foreground="#2196f3", background="#2196f3", troughcolor="#3e4452", borderwidth=0, thickness=10)
+        style.configure(
+            "TProgressbar",
+            foreground="#2196f3",
+            background="#2196f3",
+            troughcolor="#3e4452",
+            thickness=10,
+        )
 
+        # Slave Frames
+        self.slave_frames = []
+        for idx, (slave_id, ip) in enumerate(SLAVES.items(), start=1):
+            # Fetch the model and strip details
+            model = get_raspberry_pi_model(ip)
+            frame = SlaveFrame(self, slave_id, ip, model=model)
+            frame.grid(row=0, column=idx - 1, padx=10, pady=10)  # Place frames side by side
+            self.slave_frames.append((slave_id, frame))
 
-        self.pc_frames = {}
+        # Command Input
+        self.command_entry = ttk.Entry(self, width=50)
+        self.command_entry.grid(row=1, column=0, padx=10, pady=10, columnspan=len(SLAVES))
+        self.command_entry.insert(0, "Enter custom command...")  # Placeholder text
 
-        pcs = [("Master PC", None)] + [(f"Slave PC {i+1}", ip) for i, (name, ip) in enumerate(SLAVES.items())]
-
-        row, col = 0, 0
-        for name, ip in pcs:
-            frame = PCFrame(self, name, ip)
-            frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-            self.pc_frames[name] = frame
-
-            col += 1
-            if col > 2:  # 3 columns
-                col = 0
-                row += 1
-
-
-
-        self.command_frame = ttk.Frame(self, padding=10, style="TFrame")
-        self.command_frame.grid(row=1, column=0, columnspan=3, sticky="ew") # Columnspan updated
-
-        self.command_entry = ttk.Entry(self.command_frame, width=50, style="TEntry")
-        self.command_entry.grid(row=0, column=0, padx=(0, 5), sticky="ew")
-
-        self.command_entry.insert(0, "Enter custom command...")
+        # Bind events for focus in and out
         self.command_entry.bind("<FocusIn>", self.clear_placeholder)
         self.command_entry.bind("<FocusOut>", self.add_placeholder)
-        self.command_entry.bind("<Return>", self.send_command) # Bind Enter key
+        self.command_entry.bind("<Return>", self.send_command)  # Execute command on Enter
 
-        self.send_button = ttk.Button(self.command_frame, text="Execute", command=self.send_command, style="TButton")
-        self.send_button.grid(row=0, column=1, sticky="e")
-
-        self.command_log = tk.Text(self.command_frame, height=10, width=50, bg="#3e4452", fg="#abb2bf", insertbackground="#abb2bf", borderwidth=0, wrap=tk.WORD, font=("Courier New", 10))
-        self.command_log.grid(row=1, column=0, columnspan=2, pady=(10, 0), sticky="nsew") # Updated columnspan
+        # Command Log
+        self.command_log = tk.Text(
+            self, height=10, width=80, bg="#3e4452", fg="#abb2bf", borderwidth=0
+        )
+        self.command_log.grid(row=2, column=0, columnspan=len(SLAVES), padx=10, pady=10)
         self.command_log.config(state="disabled")
 
+        # Status Label
+        self.status_label = tk.Label(
+            self,
+            text="System Monitor v1.0.0 | Connected Slaves: --/4 | Last Update: --",
+            bg="#282c34",
+            fg="#abb2bf",
+        )
+        self.status_label.grid(row=3, column=0, columnspan=len(SLAVES), padx=10, pady=(0, 10))
 
-
-        self.status_label = tk.Label(self, text="System Monitor v1.0.0 | Connected Slaves: --/-- | Last Update: --", bg="#282c34", fg="#abb2bf", anchor="w")
-        self.status_label.grid(row=2, column=0, columnspan=3, sticky="w", padx=10, pady=(5, 0)) # Updated columnspan
-
-
-        self.refresh_interval = 2000
-        self.query_pc_details()
-
-
+        self.update_real_data()
 
     def clear_placeholder(self, event):
+        """Clear placeholder text when the user clicks the entry box."""
         if self.command_entry.get() == "Enter custom command...":
             self.command_entry.delete(0, tk.END)
 
     def add_placeholder(self, event):
+        """Restore placeholder text if the entry box is empty."""
         if not self.command_entry.get():
             self.command_entry.insert(0, "Enter custom command...")
 
+    def fetch_slave_data(self, ip):
+        """Fetch and parse data from a slave."""
+        data = {}
+        is_online = False
 
+        # Detect Raspberry Pi model
+        model = get_raspberry_pi_model(ip)
+        supports_adc = "5" in model  # Only Raspberry Pi 5 supports ADC
 
-    def query_pc_details(self):
-        for pc_name, frame in self.pc_frames.items():
-            if frame.ip:
-                frame.query_details()
+        for command in DETAIL_COMMANDS:
+            if command == "REQUEST_ADC" and not supports_adc:
+                data["adc_value"] = "Not Supported"
+                continue
 
+            params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
+            response = send_command(ip, command, params)
+            if response.get("status") == "success":
+                is_online = True
+                raw_data = response.get("data", "")
+                if command == "GET_CPU_TEMP":
+                    try:
+                        data["cpu_temp"] = float(raw_data.split("=")[1].strip("'C"))
+                    except Exception:
+                        data["cpu_temp"] = 0
+                elif command == "GET_UPTIME":
+                    data["uptime"] = raw_data
+                elif command == "GET_DISK_USAGE":
+                    try:
+                        data["disk_usage"] = float(raw_data.strip("%"))
+                    except Exception:
+                        data["disk_usage"] = 0
+                elif command == "LIST_USB":
+                    data["usb_devices"] = len(raw_data.splitlines())
+                elif command == "REQUEST_ADC":
+                    try:
+                        data["adc_value"] = f"{float(raw_data.split('=')[-1].strip('V')):.2f}V"
+                    except Exception:
+                        data["adc_value"] = "N/A"
+            else:
+                print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+        data["status"] = "Online" if is_online else "Offline"
+        return data
+
+    def update_real_data(self):
+        """Fetch and update data for all slaves."""
+        for slave_id, frame in self.slave_frames:
+            ip = SLAVES[slave_id]
+            threading.Thread(target=self.update_slave_frame, args=(frame, ip)).start()
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        self.status_label.config(text=f"System Monitor v1.0.0 | Connected Slaves: {len(SLAVES)}/{len(SLAVES)} | Last Update: {now}")
-        self.after(self.refresh_interval, self.query_pc_details)
+        self.status_label.config(
+            text=f"System Monitor v1.0.0 | Connected Slaves: {len(self.slave_frames)}/{len(SLAVES)} | Last Update: {now}"
+        )
+        self.after(2000, self.update_real_data)
 
+    def update_slave_frame(self, frame, ip):
+        """Update a single slave frame with fetched data."""
+        try:
+            data = self.fetch_slave_data(ip)
+            frame.update_data(data)
+        except Exception as e:
+            print(f"[ERROR] Failed to update {ip}: {e}")
 
     def send_command(self, event=None):
+        """Send a custom command to all slaves and log responses."""
         command = self.command_entry.get()
-        if command and command != "Enter custom command...":
-
+        if command:
             now = datetime.datetime.now().strftime("%H:%M:%S")
             self.command_log.config(state="normal")
-            self.command_log.insert(tk.END, f"> {command} (executed at {now})\n")
-            self.command_log.see(tk.END)
+            self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n")
+            for slave_id, ip in SLAVES.items():
+                response = send_command(ip, command)
+                self.command_log.insert(
+                    tk.END, f"{slave_id} ({ip}): {response}\n"
+                )
             self.command_log.config(state="disabled")
-
-            print(f"Sending command: {command}")  # Or your actual send command logic
             self.command_entry.delete(0, tk.END)
 
 
-def run_gui():
-    root = tk.Tk()
-    app = RackMonitorApp()
-    root.mainloop()
-
 if __name__ == "__main__":
-    run_gui()
+    app = RackMonitorApp()
+    app.mainloop()
