@@ -81,7 +81,13 @@ def fetch_local_data(command):
             except Exception as e:
                 return {"status": "error", "message": f"USB list retrieval failed: {e}"}
         elif command == "REQUEST_ADC":
-            return {"status": "error", "message": "ADC not available on master PC"}
+                try:
+                    adc_value = float(
+                        sp.getoutput(f"vcgencmd pmic_read_adc EXT5V_V").split("=")[-1].strip("V")
+                    )
+                    return {"status": "success", "data": f"{adc_value:.2f}V"}
+                except Exception as e:
+                    return {"status": "error", "message": str(e)}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
