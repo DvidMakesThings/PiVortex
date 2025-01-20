@@ -415,8 +415,10 @@ class RackMonitorApp(tk.Tk):
             self.command_log.config(state="normal")
             self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n\n")
 
-            # Send the command to all slaves
+            # Send the command to all slaves (excluding localhost)
             for slave_id, ip in SLAVES.items():
+                if ip == "localhost":  # Skip localhost
+                    continue
                 try:
                     response = send_command(ip, "RUN_SCRIPT", params={"script": command})
                     if response is None:
@@ -435,7 +437,6 @@ class RackMonitorApp(tk.Tk):
             self.command_log.see(tk.END)
             self.command_log.config(state="disabled")
             self.command_entry.delete(0, tk.END)
-
 
 
     def _execute_command_on_slave(self, slave_id, ip, command):
