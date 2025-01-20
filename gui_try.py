@@ -395,7 +395,7 @@ class RackMonitorApp(tk.Tk):
             threading.Thread(target=self.update_slave_frame, args=(frame, ip)).start()
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.status_label.config(
-            text=f"System Monitor v1.0.0 | Connected Slaves: {len(self.slave_frames)}/{len(SLAVES)} | Last Update: {now}"
+            text=f"System Monitor v1.0.0 | Connected PC's: {len(self.slave_frames)}/{len(SLAVES)} | Last Update: {now}"
         )
         self.after(2000, self.update_real_data)
 
