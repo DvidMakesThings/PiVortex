@@ -48,16 +48,30 @@ def fetch_local_data(command):
     try:
         if command == "GET_CPU_TEMP":
             if platform.system() == "Linux":
-                # Read from /sys/class/thermal/thermal_zone0/temp
-                with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
-                    temp = int(f.read().strip()) / 1000.0
-                return {"status": "success", "data": f"{temp:.2f}"}
+                # Check common thermal sensor locations
+                paths = [
+                    "/sys/class/thermal/thermal_zone0/temp",
+                    "/sys/class/hwmon/hwmon0/temp1_input"
+                ]
+                for path in paths:
+                    try:
+                        with open(path, "r") as f:
+                            temp = int(f.read().strip()) / 1000.0
+                            return {"status": "success", "data": f"{temp:.2f}"}
+                    except FileNotFoundError:
+                        continue
+                return {"status": "error", "message": "Temperature file not found"}
             elif platform.system() == "Windows":
                 # Use psutil for temperature if available
-                sensors = psutil.sensors_temperatures()
-                if "coretemp" in sensors:
-                    temp = sensors["coretemp"][0].current
-                    return {"status": "success", "data": f"{temp:.2f}"}
+                try:
+                    import wmi
+                    c = wmi.WMI(namespace="root\\OpenHardwareMonitor")
+                    sensors = c.Sensor()
+                    for sensor in sensors:
+                        if sensor.SensorType == "Temperature" and "CPU" in sensor.Name:
+                            return {"status": "success", "data": f"{sensor.Value:.2f}"}
+                except Exception:
+                    pass
                 return {"status": "error", "message": "Temperature not available on Windows"}
             else:
                 return {"status": "error", "message": "Unsupported platform"}
