@@ -415,16 +415,16 @@ class RackMonitorApp(tk.Tk):
             self.command_log.config(state="normal")
             self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n\n")
 
-            # Send the command to all slaves (excluding localhost)
+            # Send the command to all slaves
             for slave_id, ip in SLAVES.items():
-                if ip == "localhost":  # Skip localhost
-                    continue
                 try:
                     response = send_command(ip, "RUN_SCRIPT", params={"script": command})
                     if response is None:
                         response = {"status": "error", "message": "No response"}
                     status = response.get("status", "unknown")
                     message = response.get("data", response.get("message", "No response"))
+                    
+                    # Insert response with enforced newline after each entry
                     self.command_log.insert(
                         tk.END, f"{slave_id} ({ip}) [{now}]: {message}\n"
                     )
@@ -433,11 +433,12 @@ class RackMonitorApp(tk.Tk):
                         tk.END, f"{slave_id} ({ip}) [{now}]: ERROR - {str(e)}\n"
                     )
 
-            self.command_log.insert(tk.END, "\n")  # Add a blank line after all responses
+                # Add a newline after each slave response
+                self.command_log.insert(tk.END, "\n")
+
             self.command_log.see(tk.END)
             self.command_log.config(state="disabled")
             self.command_entry.delete(0, tk.END)
-
 
     def _execute_command_on_slave(self, slave_id, ip, command):
         """Execute a custom command on a single slave and log the response."""
