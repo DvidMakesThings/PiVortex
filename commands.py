@@ -44,10 +44,16 @@ def get_disk_usage(params):
         return {"status": "error", "message": str(e)}
 
 def run_script(params):
+    """Execute a custom script or command."""
     try:
-        script = params.get("script")
-        result = subprocess.check_output(script, shell=True)
+        script = params.get("script", "")
+        if not script:
+            return {"status": "error", "message": "No script provided"}
+        # Execute the script
+        result = subprocess.check_output(script, shell=True, stderr=subprocess.STDOUT)
         return {"status": "success", "data": result.decode().strip()}
+    except subprocess.CalledProcessError as e:
+        return {"status": "error", "message": e.output.decode().strip()}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

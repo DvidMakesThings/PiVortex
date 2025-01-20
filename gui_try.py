@@ -10,6 +10,8 @@ import subprocess as sp
 
 import psutil
 
+DEBUG = False
+
 # Configuration
 SLAVES = {
     "masterpc": "localhost",  # Add master PC as localhost
@@ -107,7 +109,7 @@ def get_raspberry_pi_model(ip):
             else:
                 return raw_model
         else:
-            print(f"[WARNING] Failed to detect model for {ip}: {response.get('message')}")
+            if DEBUG: print(f"[WARNING] Failed to detect model for {ip}: {response.get('message')}")
     except Exception as e:
         print(f"[ERROR] Exception while detecting model for {ip}: {e}")
     return "Unknown"
@@ -315,12 +317,19 @@ class RackMonitorApp(tk.Tk):
                         elif command == "REQUEST_ADC":
                             data["adc_value"] = raw_data
                     else:
-                        print(f"[WARNING] Command {command} failed for localhost: {response.get('message')}")
+                        if DEBUG: print(f"[WARNING] Command {command} failed for localhost: {response.get('message')}")
                 except Exception as e:
                     print(f"[ERROR] Failed to execute {command} on localhost: {e}")
         else:
             # Fetch data from the slave
+            model = get_raspberry_pi_model(ip)
+            supports_adc = "5" in model  # Only Raspberry Pi 5 supports ADC
+
             for command in DETAIL_COMMANDS:
+                if command == "REQUEST_ADC" and not supports_adc:
+                    data["adc_value"] = "Not Supported"
+                    continue
+
                 params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
                 response = send_command(ip, command, params)
                 if response.get("status") == "success":
@@ -346,14 +355,12 @@ class RackMonitorApp(tk.Tk):
                         except Exception:
                             data["adc_value"] = "N/A"
                 else:
-                    print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+                    if DEBUG: print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
 
         data["status"] = "Online" if is_online else "Offline"
         return data
 
-
-
-
+    
     def update_real_data(self):
         """Fetch and update data for all slaves."""
         for slave_id, frame in self.slave_frames:
@@ -374,19 +381,43 @@ class RackMonitorApp(tk.Tk):
             print(f"[ERROR] Failed to update {ip}: {e}")
 
     def send_command(self, event=None):
-        """Send a custom command to all slaves and log responses."""
-        command = self.command_entry.get()
-        if command:
+        """Send a custom command to all slaves (excluding localhost) and log responses."""
+        command = self.command_entry.get().strip()
+        if not command:
+            return  # Ignore empty commands
+
+        now = datetime.datetime.now().strftime("%H:%M:%S")
+        self.command_log.config(state="normal")
+        self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n")
+        self.command_log.see(tk.END)
+
+        for slave_id, ip in SLAVES.items():
+            # Skip localhost
+            if ip == "localhost":
+                continue
+
+            threading.Thread(target=self._execute_command_on_slave, args=(slave_id, ip, command)).start()
+
+        self.command_entry.delete(0, tk.END)
+
+    def _execute_command_on_slave(self, slave_id, ip, command):
+        """Execute a custom command on a single slave and log the response."""
+        try:
+            # Send the command as part of RUN_SCRIPT
+            response = send_command(ip, "RUN_SCRIPT", {"script": command})
             now = datetime.datetime.now().strftime("%H:%M:%S")
-            self.command_log.config(state="normal")
-            self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n")
-            for slave_id, ip in SLAVES.items():
-                response = send_command(ip, command)
-                self.command_log.insert(
-                    tk.END, f"{slave_id} ({ip}): {response}\n"
-                )
+            if response.get("status") == "success":
+                output = response.get("data", "No output")
+                self.command_log.insert(tk.END, f"{slave_id} ({ip}) [{now}]: {output}\n")
+            else:
+                error_message = response.get("message", "Unknown error")
+                self.command_log.insert(tk.END, f"{slave_id} ({ip}) [{now}]: ERROR - {error_message}\n")
+        except Exception as e:
+            self.command_log.insert(tk.END, f"{slave_id} ({ip}): ERROR - {e}\n")
+        finally:
             self.command_log.config(state="disabled")
-            self.command_entry.delete(0, tk.END)
+            self.command_log.see(tk.END)
+
 
 
 if __name__ == "__main__":
