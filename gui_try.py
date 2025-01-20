@@ -295,43 +295,58 @@ class RackMonitorApp(tk.Tk):
         data = {}
         is_online = False
 
-        # Detect Raspberry Pi model
-        model = get_raspberry_pi_model(ip)
-        supports_adc = "5" in model  # Only Raspberry Pi 5 supports ADC
-
-        for command in DETAIL_COMMANDS:
-            if command == "REQUEST_ADC" and not supports_adc:
-                data["adc_value"] = "Not Supported"
-                continue
-
-            params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
-            response = send_command(ip, command, params)
-            if response.get("status") == "success":
-                is_online = True
-                raw_data = response.get("data", "")
-                if command == "GET_CPU_TEMP":
-                    try:
-                        data["cpu_temp"] = float(raw_data.split("=")[1].strip("'C"))
-                    except Exception:
-                        data["cpu_temp"] = 0
-                elif command == "GET_UPTIME":
-                    data["uptime"] = raw_data
-                elif command == "GET_DISK_USAGE":
-                    try:
+        if ip == "localhost":
+            # Use local fetching for the master PC
+            for command in DETAIL_COMMANDS:
+                response = fetch_local_data(command)
+                if response.get("status") == "success":
+                    is_online = True
+                    raw_data = response.get("data", "")
+                    if command == "GET_CPU_TEMP":
+                        data["cpu_temp"] = float(raw_data)
+                    elif command == "GET_UPTIME":
+                        data["uptime"] = raw_data
+                    elif command == "GET_DISK_USAGE":
                         data["disk_usage"] = float(raw_data.strip("%"))
-                    except Exception:
-                        data["disk_usage"] = 0
-                elif command == "LIST_USB":
-                    data["usb_devices"] = len(raw_data.splitlines())
-                elif command == "REQUEST_ADC":
-                    try:
-                        data["adc_value"] = f"{float(raw_data.split('=')[-1].strip('V')):.2f}V"
-                    except Exception:
-                        data["adc_value"] = "N/A"
-            else:
-                print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+                    elif command == "LIST_USB":
+                        data["usb_devices"] = raw_data
+                    elif command == "REQUEST_ADC":
+                        data["adc_value"] = raw_data
+                else:
+                    print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+        else:
+            # Use remote fetching for other slaves
+            for command in DETAIL_COMMANDS:
+                params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
+                response = send_command(ip, command, params)
+                if response.get("status") == "success":
+                    is_online = True
+                    raw_data = response.get("data", "")
+                    if command == "GET_CPU_TEMP":
+                        try:
+                            data["cpu_temp"] = float(raw_data.split("=")[1].strip("'C"))
+                        except Exception:
+                            data["cpu_temp"] = 0
+                    elif command == "GET_UPTIME":
+                        data["uptime"] = raw_data
+                    elif command == "GET_DISK_USAGE":
+                        try:
+                            data["disk_usage"] = float(raw_data.strip("%"))
+                        except Exception:
+                            data["disk_usage"] = 0
+                    elif command == "LIST_USB":
+                        data["usb_devices"] = len(raw_data.splitlines())
+                    elif command == "REQUEST_ADC":
+                        try:
+                            data["adc_value"] = f"{float(raw_data.split('=')[-1].strip('V')):.2f}V"
+                        except Exception:
+                            data["adc_value"] = "N/A"
+                else:
+                    print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
+
         data["status"] = "Online" if is_online else "Offline"
         return data
+
 
     def update_real_data(self):
         """Fetch and update data for all slaves."""
