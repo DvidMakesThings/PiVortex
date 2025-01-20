@@ -381,24 +381,27 @@ class RackMonitorApp(tk.Tk):
             print(f"[ERROR] Failed to update {ip}: {e}")
 
     def send_command(self, event=None):
-        """Send a custom command to all slaves (excluding localhost) and log responses."""
-        command = self.command_entry.get().strip()
-        if not command:
-            return  # Ignore empty commands
+        """Send a custom command to all slaves and log responses."""
+        command = self.command_entry.get()
+        if command:
+            now = datetime.datetime.now().strftime("%H:%M:%S")
+            self.command_log.config(state="normal")
+            self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n\n")
 
-        now = datetime.datetime.now().strftime("%H:%M:%S")
-        self.command_log.config(state="normal")
-        self.command_log.insert(tk.END, f"> Sending command: {command} ({now})\n")
-        self.command_log.see(tk.END)
+            # Send the command to all slaves
+            for slave_id, ip in SLAVES.items():
+                response = send_command(ip, "RUN_SCRIPT", params={"script": command})
+                status = response.get("status", "unknown")
+                message = response.get("data", response.get("message", "No response"))
+                self.command_log.insert(
+                    tk.END, f"{slave_id} ({ip}) [{now}]: {message}\n"
+                )
 
-        for slave_id, ip in SLAVES.items():
-            # Skip localhost
-            if ip == "localhost":
-                continue
+            self.command_log.insert(tk.END, "\n")  # Add a blank line after all responses
+            self.command_log.see(tk.END)
+            self.command_log.config(state="disabled")
+            self.command_entry.delete(0, tk.END)
 
-            threading.Thread(target=self._execute_command_on_slave, args=(slave_id, ip, command)).start()
-
-        self.command_entry.delete(0, tk.END)
 
     def _execute_command_on_slave(self, slave_id, ip, command):
         """Execute a custom command on a single slave and log the response."""
