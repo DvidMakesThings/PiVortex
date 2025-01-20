@@ -1,7 +1,7 @@
 import socket
 import json
 import threading
-from tkinter import Tk, Frame, Label, Button, BOTH, Scrollbar, Text, VERTICAL, END
+from tkinter import Tk, Frame, Label, BOTH
 
 SLAVES = {
     "slavepi1": "192.168.0.15",
@@ -45,6 +45,7 @@ def summarize_disk_usage(raw_data):
     lines = raw_data.splitlines()
     return "\n".join(lines[:2]) if len(lines) > 1 else raw_data
 
+
 class SlaveMonitorApp:
     def __init__(self, root):
         self.root = root
@@ -87,17 +88,17 @@ class SlaveMonitorApp:
                 col = 0
                 row += 1
 
-        # Refresh Button
-        self.refresh_button = Button(self.root, text="Refresh", command=self.query_slaves, padx=10, pady=5)
-        self.refresh_button.pack(pady=10)
-
-        # Initial Query
+        # Start periodic refresh
+        self.refresh_interval = 2000  # 2 seconds
         self.query_slaves()
 
     def query_slaves(self):
         # Update slave details
         for name, ip in SLAVES.items():
             threading.Thread(target=self.update_slave_details, args=(name, ip)).start()
+
+        # Schedule the next update
+        self.root.after(self.refresh_interval, self.query_slaves)
 
     def update_slave_details(self, name, ip):
         results = {}
