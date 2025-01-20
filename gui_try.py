@@ -296,63 +296,31 @@ class RackMonitorApp(tk.Tk):
         is_online = False
 
         if ip == "localhost":
-            # Fetch Raspberry Pi model for master PC
-            model_response = fetch_local_data("RUN_SCRIPT", {"script": "cat /proc/device-tree/model"})
-            if model_response.get("status") == "success":
-                model_raw = model_response.get("data", "").strip()
-                if "Raspberry Pi 5" in model_raw:
-                    data["model"] = "Raspberry Pi 5"
-                elif "Raspberry Pi 4" in model_raw:
-                    data["model"] = "Raspberry Pi 4"
-                else:
-                    data["model"] = model_raw
-            else:
-                data["model"] = "Unknown"
-                print(f"[WARNING] Failed to detect model for localhost: {model_response.get('message')}")
-
-            # Fetch local data for the master PC
+            # Fetch data locally for the master PC
             for command in DETAIL_COMMANDS:
-                if command == "REQUEST_ADC" and "5" not in data["model"]:
-                    data["adc_value"] = "Not Supported"
-                    continue
-
-                response = fetch_local_data(command)
-                if response.get("status") == "success":
-                    is_online = True
-                    raw_data = response.get("data", "")
-                    if command == "GET_CPU_TEMP":
-                        data["cpu_temp"] = float(raw_data)
-                    elif command == "GET_UPTIME":
-                        data["uptime"] = raw_data
-                    elif command == "GET_DISK_USAGE":
-                        data["disk_usage"] = float(raw_data.strip("%"))
-                    elif command == "LIST_USB":
-                        data["usb_devices"] = raw_data
-                    elif command == "REQUEST_ADC":
-                        data["adc_value"] = raw_data
-                else:
-                    print(f"[WARNING] Command {command} failed for localhost: {response.get('message')}")
+                try:
+                    params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
+                    response = fetch_local_data(command)
+                    if response.get("status") == "success":
+                        is_online = True
+                        raw_data = response.get("data", "")
+                        if command == "GET_CPU_TEMP":
+                            data["cpu_temp"] = float(raw_data)
+                        elif command == "GET_UPTIME":
+                            data["uptime"] = raw_data
+                        elif command == "GET_DISK_USAGE":
+                            data["disk_usage"] = float(raw_data.strip("%"))
+                        elif command == "LIST_USB":
+                            data["usb_devices"] = raw_data
+                        elif command == "REQUEST_ADC":
+                            data["adc_value"] = raw_data
+                    else:
+                        print(f"[WARNING] Command {command} failed for localhost: {response.get('message')}")
+                except Exception as e:
+                    print(f"[ERROR] Failed to execute {command} on localhost: {e}")
         else:
-            # Fetch Raspberry Pi model for remote slaves
-            model_response = send_command(ip, "RUN_SCRIPT", {"script": "cat /proc/device-tree/model"})
-            if model_response.get("status") == "success":
-                model_raw = model_response.get("data", "").strip()
-                if "Raspberry Pi 5" in model_raw:
-                    data["model"] = "Raspberry Pi 5"
-                elif "Raspberry Pi 4" in model_raw:
-                    data["model"] = "Raspberry Pi 4"
-                else:
-                    data["model"] = model_raw
-            else:
-                data["model"] = "Unknown"
-                print(f"[WARNING] Failed to detect model for {ip}: {model_response.get('message')}")
-
             # Fetch data from the slave
             for command in DETAIL_COMMANDS:
-                if command == "REQUEST_ADC" and "5" not in data["model"]:
-                    data["adc_value"] = "Not Supported"
-                    continue
-
                 params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
                 response = send_command(ip, command, params)
                 if response.get("status") == "success":
@@ -382,6 +350,7 @@ class RackMonitorApp(tk.Tk):
 
         data["status"] = "Online" if is_online else "Offline"
         return data
+
 
 
 
