@@ -116,27 +116,22 @@ def get_raspberry_pi_model(ip):
 
 
 class SlaveFrame(tk.Frame):
+    """Frame representing a single slave's status and data."""
     def __init__(self, master, slave_id, ip, model="Unknown"):
         super().__init__(master, bg="#282c34")
         self.slave_id = slave_id
         self.ip = ip
         self.model = model
 
-        # Adjust title formatting for masterpc
-        if slave_id == "masterpc":
-            title_text = f"Master PC ({ip})"
-        else:
-            title_text = f"Slave PC {slave_id} ({ip}) - {model}"
-
+        # Title with model info
         self.title_label = tk.Label(
             self,
-            text=title_text,
+            text=f"Slave PC {slave_id} ({ip}) - {model}",
             fg="#abb2bf",
             bg="#282c34",
             font=("Helvetica", 12, "bold"),
         )
         self.title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
-
 
         # CPU Temp
         self.cpu_label = tk.Label(self, text="CPU Temp:", fg="#abb2bf", bg="#282c34")
@@ -238,25 +233,26 @@ class RackMonitorApp(tk.Tk):
             thickness=10,
         )
 
-        # Add master PC to the slave list
-        self.slave_frames = []
-        devices = {"masterpc": "localhost", **SLAVES}  # Add masterpc at the beginning
+        # Grid configuration
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
 
-        # Place slave frames in a 2x2 grid
-        for idx, (slave_id, ip) in enumerate(devices.items(), start=1):
-            # Fetch model (if necessary)
-            model = "Master PC" if ip == "localhost" else get_raspberry_pi_model(ip)
+        # Slave Frames
+        self.slave_frames = []
+        for idx, (slave_id, ip) in enumerate(SLAVES.items(), start=1):
+            model = self.fetch_slave_model(ip)  # Fetch model here
             frame = SlaveFrame(self, slave_id, ip, model=model)
-            
-            # Grid placement logic for 2x2 arrangement
-            row, col = divmod(idx - 1, 2)
-            frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-            
+            frame.grid(row=(idx - 1) // 2, column=(idx - 1) % 2, padx=10, pady=10, sticky="nsew")
             self.slave_frames.append((slave_id, frame))
 
         # Command Input
-        self.command_entry = ttk.Entry(self, width=50)
-        self.command_entry.grid(row=2, column=0, padx=10, pady=10, columnspan=2)
+        self.command_frame = tk.Frame(self, bg="#282c34")
+        self.command_frame.grid(row=2, column=0, columnspan=3, sticky="ew", padx=10, pady=10)
+
+        self.command_frame.grid_columnconfigure(0, weight=1)
+
+        self.command_entry = tk.Entry(self.command_frame, bg="#3e4452", fg="#abb2bf", insertbackground="#abb2bf", borderwidth=1)
+        self.command_entry.grid(row=0, column=0, sticky="ew", padx=(0, 5), ipady=5)  # Stretched
         self.command_entry.insert(0, "Enter custom command...")  # Placeholder text
 
         # Bind events for focus in and out
@@ -264,11 +260,21 @@ class RackMonitorApp(tk.Tk):
         self.command_entry.bind("<FocusOut>", self.add_placeholder)
         self.command_entry.bind("<Return>", self.send_command)  # Execute command on Enter
 
+        self.send_button = ttk.Button(self.command_frame, text="Execute", command=self.send_command)
+        self.send_button.grid(row=0, column=1, sticky="e", padx=(5, 0))  # Execute button
+
         # Command Log
         self.command_log = tk.Text(
-            self, height=10, width=50, bg="#3e4452", fg="#abb2bf", borderwidth=0
+            self,
+            height=10,
+            width=80,
+            bg="#3e4452",
+            fg="#abb2bf",
+            insertbackground="#abb2bf",
+            borderwidth=0,
+            wrap=tk.WORD,
         )
-        self.command_log.grid(row=3, column=0, columnspan=2, padx=10, pady=10)
+        self.command_log.grid(row=3, column=0, columnspan=3, sticky="nsew", padx=10, pady=10)
         self.command_log.config(state="disabled")
 
         # Status Label
@@ -278,10 +284,30 @@ class RackMonitorApp(tk.Tk):
             bg="#282c34",
             fg="#abb2bf",
         )
-        self.status_label.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 10))
+        self.status_label.grid(row=4, column=0, columnspan=3, padx=10, pady=(0, 10))
 
         self.update_real_data()
-
+    
+    def fetch_slave_model(self, ip):
+        """Fetch the Raspberry Pi model for a given IP."""
+        if ip == "localhost":
+            # No model detection for localhost
+            return "Master PC"
+        try:
+            response = send_command(ip, "RUN_SCRIPT", params={"script": "cat /proc/device-tree/model"})
+            if response.get("status") == "success":
+                raw_model = response.get("data", "Unknown").strip()
+                if "Raspberry Pi 5" in raw_model:
+                    return "Raspberry Pi 5"
+                elif "Raspberry Pi 4" in raw_model:
+                    return "Raspberry Pi 4"
+                return raw_model
+            else:
+                print(f"[WARNING] Failed to fetch model for {ip}: {response.get('message')}")
+        except Exception as e:
+            print(f"[ERROR] Error fetching model for {ip}: {e}")
+        return "Unknown"
+    
     def clear_placeholder(self, event):
         """Clear placeholder text when the user clicks the entry box."""
         if self.command_entry.get() == "Enter custom command...":
@@ -291,6 +317,7 @@ class RackMonitorApp(tk.Tk):
         """Restore placeholder text if the entry box is empty."""
         if not self.command_entry.get():
             self.command_entry.insert(0, "Enter custom command...")
+
 
     def fetch_slave_data(self, ip):
         """Fetch and parse data from a slave."""
@@ -390,17 +417,25 @@ class RackMonitorApp(tk.Tk):
 
             # Send the command to all slaves
             for slave_id, ip in SLAVES.items():
-                response = send_command(ip, "RUN_SCRIPT", params={"script": command})
-                status = response.get("status", "unknown")
-                message = response.get("data", response.get("message", "No response"))
-                self.command_log.insert(
-                    tk.END, f"{slave_id} ({ip}) [{now}]: {message}\n"
-                )
+                try:
+                    response = send_command(ip, "RUN_SCRIPT", params={"script": command})
+                    if response is None:
+                        response = {"status": "error", "message": "No response"}
+                    status = response.get("status", "unknown")
+                    message = response.get("data", response.get("message", "No response"))
+                    self.command_log.insert(
+                        tk.END, f"{slave_id} ({ip}) [{now}]: {message}\n"
+                    )
+                except Exception as e:
+                    self.command_log.insert(
+                        tk.END, f"{slave_id} ({ip}) [{now}]: ERROR - {str(e)}\n"
+                    )
 
             self.command_log.insert(tk.END, "\n")  # Add a blank line after all responses
             self.command_log.see(tk.END)
             self.command_log.config(state="disabled")
             self.command_entry.delete(0, tk.END)
+
 
 
     def _execute_command_on_slave(self, slave_id, ip, command):
