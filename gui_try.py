@@ -315,8 +315,15 @@ class RackMonitorApp(tk.Tk):
                 else:
                     print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
         else:
-            # Use remote fetching for other slaves
+            # Detect Raspberry Pi model
+            model = get_raspberry_pi_model(ip)
+            supports_adc = "5" in model  # Only Raspberry Pi 5 supports ADC
+
             for command in DETAIL_COMMANDS:
+                if command == "REQUEST_ADC" and not supports_adc:
+                    data["adc_value"] = "Not Supported"
+                    continue
+
                 params = {"channel": "EXT5V_V"} if command == "REQUEST_ADC" else None
                 response = send_command(ip, command, params)
                 if response.get("status") == "success":
@@ -343,10 +350,8 @@ class RackMonitorApp(tk.Tk):
                             data["adc_value"] = "N/A"
                 else:
                     print(f"[WARNING] Command {command} failed for {ip}: {response.get('message')}")
-
-        data["status"] = "Online" if is_online else "Offline"
-        return data
-
+            data["status"] = "Online" if is_online else "Offline"
+            return data
 
     def update_real_data(self):
         """Fetch and update data for all slaves."""
