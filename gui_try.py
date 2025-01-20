@@ -48,31 +48,11 @@ def fetch_local_data(command):
     try:
         if command == "GET_CPU_TEMP":
             if platform.system() == "Linux":
-                # Check common thermal sensor locations
-                paths = [
-                    "/sys/class/thermal/thermal_zone0/temp",
-                    "/sys/class/hwmon/hwmon0/temp1_input"
-                ]
-                for path in paths:
-                    try:
-                        with open(path, "r") as f:
-                            temp = int(f.read().strip()) / 1000.0
-                            return {"status": "success", "data": f"{temp:.2f}"}
-                    except FileNotFoundError:
-                        continue
-                return {"status": "error", "message": "Temperature file not found"}
+                # Use vcgencmd to get the temperature
+                temp = float(sp.getoutput("vcgencmd measure_temp").split("=")[1].split("'")[0])
+                return {"status": "success", "data": f"{temp:.2f}"}
             elif platform.system() == "Windows":
-                # Use psutil for temperature if available
-                try:
-                    import wmi
-                    c = wmi.WMI(namespace="root\\OpenHardwareMonitor")
-                    sensors = c.Sensor()
-                    for sensor in sensors:
-                        if sensor.SensorType == "Temperature" and "CPU" in sensor.Name:
-                            return {"status": "success", "data": f"{sensor.Value:.2f}"}
-                except Exception:
-                    pass
-                return {"status": "error", "message": "Temperature not available on Windows"}
+                return {"status": "error", "message": "CPU temperature not available on Windows"}
             else:
                 return {"status": "error", "message": "Unsupported platform"}
         elif command == "GET_UPTIME":
@@ -250,18 +230,25 @@ class RackMonitorApp(tk.Tk):
             thickness=10,
         )
 
-        # Slave Frames
+        # Add master PC to the slave list
         self.slave_frames = []
-        for idx, (slave_id, ip) in enumerate(SLAVES.items(), start=1):
-            # Fetch the model and strip details
-            model = get_raspberry_pi_model(ip)
+        devices = {"masterpc": "localhost", **SLAVES}  # Add masterpc at the beginning
+
+        # Place slave frames in a 2x2 grid
+        for idx, (slave_id, ip) in enumerate(devices.items(), start=1):
+            # Fetch model (if necessary)
+            model = "Master PC" if ip == "localhost" else get_raspberry_pi_model(ip)
             frame = SlaveFrame(self, slave_id, ip, model=model)
-            frame.grid(row=0, column=idx - 1, padx=10, pady=10)  # Place frames side by side
+            
+            # Grid placement logic for 2x2 arrangement
+            row, col = divmod(idx - 1, 2)
+            frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            
             self.slave_frames.append((slave_id, frame))
 
         # Command Input
         self.command_entry = ttk.Entry(self, width=50)
-        self.command_entry.grid(row=1, column=0, padx=10, pady=10, columnspan=len(SLAVES))
+        self.command_entry.grid(row=2, column=0, padx=10, pady=10, columnspan=2)
         self.command_entry.insert(0, "Enter custom command...")  # Placeholder text
 
         # Bind events for focus in and out
@@ -271,19 +258,19 @@ class RackMonitorApp(tk.Tk):
 
         # Command Log
         self.command_log = tk.Text(
-            self, height=10, width=80, bg="#3e4452", fg="#abb2bf", borderwidth=0
+            self, height=10, width=50, bg="#3e4452", fg="#abb2bf", borderwidth=0
         )
-        self.command_log.grid(row=2, column=0, columnspan=len(SLAVES), padx=10, pady=10)
+        self.command_log.grid(row=3, column=0, columnspan=2, padx=10, pady=10)
         self.command_log.config(state="disabled")
 
         # Status Label
         self.status_label = tk.Label(
             self,
-            text="System Monitor v1.0.0 | Connected Slaves: --/4 | Last Update: --",
+            text="System Monitor v1.0.0 | Connected Slaves: --/3 | Last Update: --",
             bg="#282c34",
             fg="#abb2bf",
         )
-        self.status_label.grid(row=3, column=0, columnspan=len(SLAVES), padx=10, pady=(0, 10))
+        self.status_label.grid(row=4, column=0, columnspan=2, padx=10, pady=(0, 10))
 
         self.update_real_data()
 
