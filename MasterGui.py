@@ -4,6 +4,7 @@ import json
 import tkinter as tk
 from tkinter import ttk
 import time
+import gc
 import datetime
 import threading
 import subprocess as sp
@@ -116,95 +117,77 @@ def get_raspberry_pi_model(ip):
 
 
 class SlaveFrame(tk.Frame):
-    """Frame representing a single slave's status and data."""
-    def __init__(self, master, slave_id, ip, model="Unknown"):
+    """Frame representing a single PC's status and data."""
+    def __init__(self, master, slave_id, ip, model="Unknown", is_master=False):
         super().__init__(master, bg="#282c34")
         self.slave_id = slave_id
         self.ip = ip
         self.model = model
+        self.is_master = is_master  # Flag to identify the master PC
 
         # Title with model info
+        title_text = f"Master PC ({ip}) - {model}" if self.is_master else f"Slave PC {slave_id} ({ip}) - {model}"
         self.title_label = tk.Label(
             self,
-            text=f"Slave PC {slave_id} ({ip}) - {model}",
+            text=title_text,
             fg="#abb2bf",
             bg="#282c34",
-            font=("Helvetica", 12, "bold"),
+            font=("Helvetica", 10, "bold"),  # Reduced font size for title
         )
-        self.title_label.grid(row=0, column=0, columnspan=2, sticky="w", pady=(5, 0))
+        self.title_label.grid(row=0, column=0, columnspan=3, sticky="w", pady=(2, 0))  # Reduced padding
 
-        # CPU Temp
-        self.cpu_label = tk.Label(self, text="CPU Temp:", fg="#abb2bf", bg="#282c34")
-        self.cpu_label.grid(row=1, column=0, sticky="w")
+        # Rows for different data
+        self._create_row(1, "CPU Temp:", "--°C", is_progressbar=True)
+        self._create_row(2, "Disk Usage:", "--%", is_progressbar=True)
+        self._create_row(3, "USB Devices:", "--")
+        self._create_row(4, "ADC Value:", "N/A" if self.is_master else "--")
+        self._create_row(5, "Uptime:", "--")
+        self._create_row(6, "Status:", "Unknown")
 
-        self.cpu_progress = ttk.Progressbar(self, length=150, mode="determinate")
-        self.cpu_progress.grid(row=1, column=1, padx=(5, 0), sticky="w")
-
-        self.cpu_temp_label = tk.Label(
-            self,
-            text="--°C",
-            fg="#abb2bf",
-            bg="#282c34",
-            font=("Helvetica", 10, "bold"),
+    def _create_row(self, row, label_text, default_value, is_progressbar=False):
+        """Helper to create a row with consistent alignment."""
+        # Label for the row
+        tk.Label(self, text=label_text, fg="#abb2bf", bg="#282c34", font=("Helvetica", 10)).grid(
+            row=row, column=0, sticky="w", padx=8, pady=1  # Reduced padding and font size
         )
-        self.cpu_temp_label.grid(row=1, column=2, padx=(5, 0), sticky="w")
 
-        # Disk Usage
-        self.disk_label = tk.Label(self, text="Disk Usage:", fg="#abb2bf", bg="#282c34")
-        self.disk_label.grid(row=2, column=0, sticky="w")
-        self.disk_progress = ttk.Progressbar(self, length=150, mode="determinate")
-        self.disk_progress.grid(row=2, column=1, padx=(5, 0), sticky="w")
+        # If the row has a progress bar
+        if is_progressbar:
+            progress = ttk.Progressbar(self, length=140, mode="determinate")  # Reduced width
+            progress.grid(row=row, column=1, sticky="w", padx=(4, 8), pady=2)  # Reduced padding
+            setattr(self, f"progress_{label_text.lower().replace(' ', '_').strip(':')}", progress)
 
-        self.disk_usage_label = tk.Label(
-            self,
-            text="--%",
-            fg="#abb2bf",
-            bg="#282c34",
-            font=("Helvetica", 10, "bold"),
+        # Value label
+        value_label = tk.Label(self, text=default_value, fg="#abb2bf", bg="#282c34", font=("Helvetica", 9, "bold"))
+        value_label.grid(
+            row=row, column=2, sticky="w", padx=(4, 0), pady=2  # Reduced padding and font size
         )
-        self.disk_usage_label.grid(row=2, column=2, padx=(5, 0), sticky="w")
-
-        # USB Devices
-        self.usb_label = tk.Label(self, text="USB Devices: --", fg="#abb2bf", bg="#282c34")
-        self.usb_label.grid(row=3, column=0, columnspan=3, sticky="w")
-
-        # ADC Value
-        self.adc_label = tk.Label(self, text="ADC Value: --", fg="#abb2bf", bg="#282c34")
-        self.adc_label.grid(row=4, column=0, columnspan=3, sticky="w")
-
-        # Uptime
-        self.uptime_label = tk.Label(self, text="Uptime: --", fg="#abb2bf", bg="#282c34")
-        self.uptime_label.grid(row=5, column=0, sticky="w")
-
-        # Status
-        self.status_label = tk.Label(
-            self, text="Status: Unknown", fg="#abb2bf", bg="#282c34"
-        )
-        self.status_label.grid(row=6, column=0, sticky="w")
+        setattr(self, f"value_{label_text.lower().replace(' ', '_').strip(':')}", value_label)
 
     def update_data(self, data):
         """Update the frame's data and progress bars."""
         # Update CPU Temp
         cpu_temp = data.get("cpu_temp", 0)
-        self.cpu_progress["value"] = self._safe_value(cpu_temp)
-        self.cpu_temp_label.config(text=f"{cpu_temp:.1f}°C")
+        self.progress_cpu_temp["value"] = self._safe_value(cpu_temp)
+        self.value_cpu_temp.config(text=f"{cpu_temp:.1f}°C")
 
         # Update Disk Usage
         disk_usage = data.get("disk_usage", 0)
-        self.disk_progress["value"] = self._safe_value(disk_usage)
-        self.disk_usage_label.config(text=f"{disk_usage:.1f}%")
+        self.progress_disk_usage["value"] = self._safe_value(disk_usage)
+        self.value_disk_usage.config(text=f"{disk_usage:.1f}%")
 
         # Update USB Devices
-        self.usb_label.config(text=f"USB Devices: {data.get('usb_devices', '--')}")
+        self.value_usb_devices.config(text=f"{data.get('usb_devices', '--')}")
 
-        # Update ADC Value
-        self.adc_label.config(text=f"ADC Value: {data.get('adc_value', '--')}")
+        # Update ADC Value (only for slaves)
+        if not self.is_master:
+            self.value_adc_value.config(text=f"{data.get('adc_value', '--')}")
 
         # Update Uptime
-        self.uptime_label.config(text=f"Uptime: {data.get('uptime', '--')}")
+        self.value_uptime.config(text=f"{data.get('uptime', '--')}")
 
         # Update Status
-        self.status_label.config(text=f"Status: {data.get('status', 'Online')}")
+        self.value_status.config(text=f"{data.get('status', 'Online')}")
 
     @staticmethod
     def _safe_value(value):
@@ -214,6 +197,8 @@ class SlaveFrame(tk.Frame):
             return max(0, min(100, value))
         except (ValueError, TypeError):
             return 0
+
+
 
 
 class RackMonitorApp(tk.Tk):
@@ -240,10 +225,12 @@ class RackMonitorApp(tk.Tk):
         # Slave Frames
         self.slave_frames = []
         for idx, (slave_id, ip) in enumerate(SLAVES.items(), start=1):
-            model = self.fetch_slave_model(ip)  # Fetch model here
-            frame = SlaveFrame(self, slave_id, ip, model=model)
+            is_master = ip == "localhost"  # Detect master PC
+            model = "Master PC" if is_master else self.fetch_slave_model(ip)
+            frame = SlaveFrame(self, slave_id, ip, model=model, is_master=is_master)
             frame.grid(row=(idx - 1) // 2, column=(idx - 1) % 2, padx=10, pady=10, sticky="nsew")
             self.slave_frames.append((slave_id, frame))
+
 
         # Command Input
         self.command_frame = tk.Frame(self, bg="#282c34")
@@ -340,7 +327,18 @@ class RackMonitorApp(tk.Tk):
                         elif command == "GET_DISK_USAGE":
                             data["disk_usage"] = float(raw_data.strip("%"))
                         elif command == "LIST_USB":
-                            data["usb_devices"] = raw_data
+                            try:
+                                if platform.system() == "Linux":
+                                    # Count external USB devices, excluding root hubs
+                                    usb_devices = sp.getoutput("lsusb | grep -v 'Linux Foundation' | wc -l")
+                                    return {"status": "success", "data": f"{usb_devices.strip()} devices"}
+                                else:
+                                    # Simulate USB device count for non-Linux platforms
+                                    return {"status": "success", "data": "N/A"}
+                            except Exception as e:
+                                return {"status": "error", "message": f"USB list retrieval failed: {e}"}
+                            except Exception as e:
+                                return {"status": "error", "message": f"USB list retrieval failed: {e}"}
                         elif command == "REQUEST_ADC":
                             data["adc_value"] = raw_data
                     else:
@@ -393,6 +391,10 @@ class RackMonitorApp(tk.Tk):
         for slave_id, frame in self.slave_frames:
             ip = SLAVES[slave_id]
             threading.Thread(target=self.update_slave_frame, args=(frame, ip)).start()
+        
+        # Perform garbage collection to free up memory
+        gc.collect()
+
         now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.status_label.config(
             text=f"System Monitor v1.0.0 | Connected PC's: {len(self.slave_frames)}/{len(SLAVES)} | Last Update: {now}"
