@@ -7,7 +7,6 @@ VENV_DIR="/opt/${USER}_venv"
 GIT_DIR="/home/$USER/_GitHub/PiVortex"
 REQUIREMENTS_FILE="requirements.txt"
 SLAVE_SCRIPT="slave.py"
-LOG_FILE="/home/$USER/slave.log"
 
 # Ensure Python 3 is installed
 if ! command -v python3 &> /dev/null; then
@@ -53,9 +52,9 @@ if [ ! -f "$GIT_DIR/$SLAVE_SCRIPT" ]; then
     exit 1
 fi
 
-# Start the slave script
+# Start the slave script in the background
 echo "Starting the slave program for $USER..."
-nohup python "$GIT_DIR/$SLAVE_SCRIPT" > "$LOG_FILE" 2>&1 &
+nohup python "$GIT_DIR/$SLAVE_SCRIPT" >/dev/null 2>&1 &
 
 # Confirm success
-echo "Slave program is now running in the background for $USER. Logs are being saved to $LOG_FILE."
+echo "Slave program is now running in the background for $USER."
