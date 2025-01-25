@@ -327,18 +327,7 @@ class RackMonitorApp(tk.Tk):
                         elif command == "GET_DISK_USAGE":
                             data["disk_usage"] = float(raw_data.strip("%"))
                         elif command == "LIST_USB":
-                            try:
-                                if platform.system() == "Linux":
-                                    # Count external USB devices, excluding root hubs
-                                    usb_devices = sp.getoutput("lsusb | grep -v 'Linux Foundation' | wc -l")
-                                    return {"status": "success", "data": f"{usb_devices.strip()} devices"}
-                                else:
-                                    # Simulate USB device count for non-Linux platforms
-                                    return {"status": "success", "data": "N/A"}
-                            except Exception as e:
-                                return {"status": "error", "message": f"USB list retrieval failed: {e}"}
-                            except Exception as e:
-                                return {"status": "error", "message": f"USB list retrieval failed: {e}"}
+                            data["usb_devices"] = raw_data
                         elif command == "REQUEST_ADC":
                             data["adc_value"] = raw_data
                     else:
