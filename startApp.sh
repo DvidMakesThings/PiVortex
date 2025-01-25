@@ -5,12 +5,6 @@ GIT_DIR="/home/masterpi/_GitHub/PiVortex"
 VENV_DIR="/opt/sys_venv"
 SCRIPT="MasterGui.py"
 
-# Ensure Python 3 is installed
-if ! command -v python3 &> /dev/null; then
-    echo "Python3 could not be found. Please install Python 3 and try again."
-    exit 1
-fi
-
 # Step 1: Create a virtual environment in /opt if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
     echo "Virtual environment not found. Creating one in $VENV_DIR..."
@@ -39,24 +33,6 @@ if [ -d "$GIT_DIR" ]; then
     git pull || { echo "Git pull failed!"; deactivate; exit 1; }
 else
     echo "Error: $GIT_DIR not found. Please ensure the repository exists."
-    deactivate
-    exit 1
-fi
-
-# Step 4: Install requirements
-REQUIREMENTS_FILE="$GIT_DIR/requirements.txt"
-if [ -f "$REQUIREMENTS_FILE" ]; then
-    echo "Installing requirements from $REQUIREMENTS_FILE..."
-    sudo "$VENV_DIR/bin/pip" install --upgrade pip
-    sudo "$VENV_DIR/bin/pip" install -r "$REQUIREMENTS_FILE"
-    if [ $? -ne 0 ]; then
-        echo "Failed to install requirements."
-        deactivate
-        exit 1
-    fi
-    echo "Requirements installed successfully."
-else
-    echo "Error: $REQUIREMENTS_FILE not found in $GIT_DIR."
     deactivate
     exit 1
 fi
