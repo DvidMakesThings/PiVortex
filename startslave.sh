@@ -2,8 +2,8 @@
 
 # Define variables
 HOSTNAME=$(hostname)
-USER=$HOSTNAME  # Directly use hostname as the user
-VENV_DIR="/opt/${USER}_venv"
+USER=$HOSTNAME  # Use hostname as the user
+VENV_DIR="/opt/sys_venv"
 GIT_DIR="/home/$USER/_GitHub/PiVortex"
 REQUIREMENTS_FILE="requirements.txt"
 SLAVE_SCRIPT="slave.py"
