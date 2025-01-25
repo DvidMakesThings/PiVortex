@@ -1,9 +1,21 @@
 #!/bin/bash
 
 # Define variables
-GIT_DIR="/home/masterpi/_GitHub/PiVortex"
+HOSTNAME=$(hostname)
+USER=$HOSTNAME  # Use hostname as the user
+GIT_DIR="/home/$USER/_GitHub/PiVortex"
 VENV_DIR="/opt/sys_venv"
 SCRIPT="MasterGui.py"
+
+# Pull the latest changes from the Git repository
+if [ -d "$GIT_DIR" ]; then
+    echo "Pulling latest changes from Git for $USER..."
+    cd "$GIT_DIR" || exit 1
+    git pull || { echo "Git pull failed!"; exit 1; }
+else
+    echo "Error: Git directory $GIT_DIR does not exist for $USER. Please ensure the repository is cloned."
+    exit 1
+fi
 
 # Step 1: Create a virtual environment in /opt if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
