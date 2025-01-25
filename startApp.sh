@@ -37,12 +37,12 @@ else
     exit 1
 fi
 
-# Step 5: Check and run the Python script
+# Step 4: Check and run the Python script
 SCRIPT_PATH="$GIT_DIR/$SCRIPT"
 if [ -f "$SCRIPT_PATH" ]; then
     echo "Starting the master PC program..."
-    sudo "$VENV_DIR/bin/python" "$SCRIPT_PATH" &
-    echo "Master PC program is now running."
+    sudo "$VENV_DIR/bin/python" "$SCRIPT_PATH"
+    echo "Master PC program has exited."
 else
     echo "Error: $SCRIPT not found in $GIT_DIR."
     deactivate
