@@ -7,16 +7,6 @@ GIT_DIR="/home/$USER/_GitHub/PiVortex"
 VENV_DIR="/opt/sys_venv"
 SCRIPT="MasterGui.py"
 
-# Pull the latest changes from the Git repository
-if [ -d "$GIT_DIR" ]; then
-    echo "Pulling latest changes from Git for $USER..."
-    cd "$GIT_DIR" || exit 1
-    git pull || { echo "Git pull failed!"; exit 1; }
-else
-    echo "Error: Git directory $GIT_DIR does not exist for $USER. Please ensure the repository is cloned."
-    exit 1
-fi
-
 # Step 1: Create a virtual environment in /opt if it doesn't exist
 if [ ! -d "$VENV_DIR" ]; then
     echo "Virtual environment not found. Creating one in $VENV_DIR..."
@@ -52,6 +42,7 @@ fi
 # Step 4: Check and run the Python script
 SCRIPT_PATH="$GIT_DIR/$SCRIPT"
 if [ -f "$SCRIPT_PATH" ]; then
+    sudo chmod +x "$SCRIPT_PATH" 
     echo "Starting the master PC program..."
     sudo "$VENV_DIR/bin/python" "$SCRIPT_PATH"
     echo "Master PC program has exited."

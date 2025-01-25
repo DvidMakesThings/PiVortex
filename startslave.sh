@@ -57,6 +57,7 @@ fi
 
 # Start the slave script in the background
 echo "Starting the slave program for $USER..."
+sudo chmod +x "$SCRIPT_PATH" 
 nohup "$VENV_DIR/bin/python" "$GIT_DIR/$SLAVE_SCRIPT" >/dev/null 2>&1 &
 
 # Confirm success
