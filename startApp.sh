@@ -40,7 +40,7 @@ else
 fi
 
 # Step 4: Check and run the Python script
-SCRIPT_PATH="$GIT_DIR/$SCRIPT"
+SCRIPT_PATH="$GIT_DIR/SlaveMonitorApp/$SCRIPT"
 if [ -f "$SCRIPT_PATH" ]; then
     sudo chmod +x "$SCRIPT_PATH" 
     echo "Starting the master PC program..."
