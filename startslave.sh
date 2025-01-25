@@ -40,10 +40,13 @@ if [ ! -f "$GIT_DIR/$REQUIREMENTS_FILE" ]; then
     exit 1
 fi
 
-# Install requirements
+# Upgrade pip with sudo (required for /opt/venv)
+echo "Upgrading pip in $VENV_DIR..."
+sudo "$VENV_DIR/bin/pip" install --upgrade pip || { echo "Failed to upgrade pip."; deactivate; exit 1; }
+
+# Install requirements with sudo
 echo "Installing requirements for $USER..."
-pip install --upgrade pip
-pip install -r "$GIT_DIR/$REQUIREMENTS_FILE" || { echo "Failed to install dependencies."; deactivate; exit 1; }
+sudo "$VENV_DIR/bin/pip" install -r "$GIT_DIR/$REQUIREMENTS_FILE" || { echo "Failed to install dependencies."; deactivate; exit 1; }
 
 # Check if the slave script exists in the Git directory
 if [ ! -f "$GIT_DIR/$SLAVE_SCRIPT" ]; then
@@ -54,7 +57,7 @@ fi
 
 # Start the slave script in the background
 echo "Starting the slave program for $USER..."
-nohup python "$GIT_DIR/$SLAVE_SCRIPT" >/dev/null 2>&1 &
+nohup "$VENV_DIR/bin/python" "$GIT_DIR/$SLAVE_SCRIPT" >/dev/null 2>&1 &
 
 # Confirm success
 echo "Slave program is now running in the background for $USER."
